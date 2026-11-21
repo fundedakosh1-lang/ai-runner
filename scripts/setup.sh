@@ -75,7 +75,7 @@ log "Restoring Hermes state"
 mkdir -p "$HERMES_HOME" "$HERMES_HOME/memories" "$HERMES_HOME/skills" \
   "$HERMES_HOME/sessions" "$HERMES_HOME/cron" "$HERMES_HOME/logs"
 if [ -d "$WORKSPACE/.hermes" ]; then
-  for dir in memories skills sessions cron; do
+  for dir in memories sessions cron; do
     if [ -d "$WORKSPACE/.hermes/$dir" ]; then
       mkdir -p "$HERMES_HOME/$dir"
       rsync -a "$WORKSPACE/.hermes/$dir/" "$HERMES_HOME/$dir/"

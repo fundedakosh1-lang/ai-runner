@@ -11,7 +11,7 @@ log() { printf '[autosave %s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 sync_state() {
   mkdir -p "$WORKSPACE/.hermes"
-  for dir in memories skills sessions cron; do
+  for dir in memories sessions cron; do
     if [ -d "$HERMES_HOME/$dir" ]; then
       mkdir -p "$WORKSPACE/.hermes/$dir"
       rsync -a --delete "$HERMES_HOME/$dir/" "$WORKSPACE/.hermes/$dir/"
