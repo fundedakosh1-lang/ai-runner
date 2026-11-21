@@ -17,7 +17,7 @@ GIT_AUTH_HEADER="http.https://github.com/.extraheader=AUTHORIZATION: basic $(pri
 
 log "Installing system dependencies"
 sudo apt-get update -qq
-sudo apt-get install -y -qq git curl jq tmux sqlite3 rsync ca-certificates
+sudo apt-get install -y -qq git curl jq tmux sqlite3 rsync ca-certificates openssh-server
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "gh CLI is required on the runner" >&2
