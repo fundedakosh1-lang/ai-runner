@@ -1,0 +1,80 @@
+name: Hermes 24/7 Estafette
+
+on:
+  workflow_dispatch: true
+  push:
+    branches: [main]
+    paths: [.github/workflows/hermes.yml]
+
+concurrency: group
+
+jobs:
+  hermes-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 356
+    env:
+      GH_PAT: ${{ secrets.GH_PAT }}
+      TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
+      LLM_MODEL: ${{ secrets.LLM_MODEL }}
+    steps:
+      - name: Export env variables
+        run: |
+          echo "GH_PAT=${{ secrets.GH_PAT }}" | base64 -w 0
+          echo "TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }}" | base64 -w 0
+          echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" | base64 -w 0
+          echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL }}" | base64 -w 0
+          echo "LLM_MODEL=${{ secrets.LLM_MODEL }}" | base64 -w 0
+
+      - name: Clone agent-brain to workspace
+        run: |
+          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/fundedakosh1-lang/agent-brain.git ~/workspace
+          if [[ -f ~/workspace/.hermes || -f ~/workspace/hermes_data ]]; then
+            cp -r hermes ~/.hermes || cp -r hermes_data ~/.hermes
+          fi
+          echo "[Restored hermes memory]"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3 nodejs tmux curl git
+
+      - name: Install Hermes Agent
+        run: |
+          curl -fsSL https://get.hermes.ai/install.sh | bash -s -- --bin /home/runner/.local/bin
+          export PATH="$PATH:/home/runner/.local/bin"
+
+      - name: Configure Hermes Agent LLM
+        run: |
+          hermes config set llm_base_url ${LLM_BASE_URL}
+          hermes config set llm_api_key ${LLM_API_KEY}
+          hermes config set llm_model ${LLM_MODEL}
+          hermes config set user_agent claude-cli/1.0.0
+
+      - name: Start Hermes in tmux with Telegram Bot
+        run: |
+          tmux new-session -d -s Hermes "hermes run --telegram-bot-token ${TG_BOT_TOKEN} --llm-base-url ${LLM_BASE_URL} --llm-api-key ${LLM_API_KEY} --llm-model ${LLM_MODEL}"
+
+      - name: Auto-save every 10 minutes
+        run: |
+          while true; do
+            sleep 600
+            cd ~/workspace
+            git pull --rebase
+            git add -A workspace && git add -A ~/.hermes && git add -A ~/.hermes_data
+            git commit -m "auto-save"
+            git push https://x-access-token:${GH_PAT}@github.com/fundedakosh1-lang/agent-brain.git
+          done &
+          exec ${SHELL}
+
+      - name: Stop Hermes and trigger next Run
+        if: always()
+        run: |
+          tmux send-keys -t Hermes: C-c: signal SIGUSR1
+          sleep 5
+          tmux kill-session -t Hermes
+          cd ~/workspace
+          git push https://x-access-token:${GH_PAT}@github.com/fundedakosh1-lang/agent-brain.git
+          gh workflow run hermes.yml -r fundedakosh1-lang/ai-runner -f GH_PAT=${{ secrets.GH_PAT }}
+          sleep 1200
