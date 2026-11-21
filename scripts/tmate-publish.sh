@@ -9,13 +9,20 @@ mkdir -p "$LOG_DIR"
 
 log() { printf '[tmate %s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
-tmate -S "$SOCKET" new-session -d >/dev/null 2>&1 || true
+log "tmate binary: $(command -v tmate || echo missing)"
+if tmate -S "$SOCKET" new-session -d; then
+  log "tmate session started"
+else
+  log "tmate new-session failed"
+fi
+log "waiting for tmate-ready"
 for _ in $(seq 1 15); do
   if timeout 10 tmate -S "$SOCKET" wait tmate-ready >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
+log "tmate ready wait finished"
 
 SSH_ADDR="$(tmate -S "$SOCKET" display -p '#{tmate_ssh}' 2>/dev/null || true)"
 WEB_ADDR="$(tmate -S "$SOCKET" display -p '#{tmate_web}' 2>/dev/null || true)"
@@ -41,6 +48,7 @@ Run: ${RUN_URL}
 EOF
 )"
 
+log "creating private tmate issue"
 ISSUE_URL="$(gh issue create --repo "$AGENT_BRAIN_REPO" \
   --title "tmate ${GITHUB_RUN_ID:-manual} $(date -u +%FT%TZ)" \
   --body "$BODY")"
