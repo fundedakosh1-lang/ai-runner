@@ -1,80 +1,120 @@
-name: Hermes 24/7 Estafette
+name: Hermes 24/7
 
 on:
-  workflow_dispatch: true
-  push:
-    branches: [main]
-    paths: [.github/workflows/hermes.yml]
+  workflow_dispatch:
+    inputs:
+      relay:
+        description: Internal relay run
+        type: boolean
+        default: false
+      force:
+        description: Start even if another run is active
+        type: boolean
+        default: false
+      previous_run_id:
+        description: Run id to wait for before starting the gateway
+        type: string
+        default: ""
+  schedule:
+    - cron: "17 * * * *"
 
-concurrency: group
+permissions:
+  contents: read
 
 jobs:
-  hermes-runner:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      skip: ${{ steps.check.outputs.skip }}
+    steps:
+      - name: Checkout runner scripts
+        uses: actions/checkout@v4
+      - name: Check for an active Hermes run
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+          RELAY: ${{ github.event.inputs.relay }}
+          FORCE: ${{ github.event.inputs.force }}
+        run: bash scripts/guard.sh
+
+  hermes:
+    needs: guard
+    if: needs.guard.outputs.skip != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 356
     env:
+      HERMES_HOME: /home/runner/.hermes
+      AGENT_BRAIN_REPO: fundedakosh1-lang/agent-brain
+      RELAY_GRACE_SECONDS: "900"
+      PREVIOUS_RUN_ID: ${{ github.event.inputs.previous_run_id }}
       GH_PAT: ${{ secrets.GH_PAT }}
       TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       LLM_MODEL: ${{ secrets.LLM_MODEL }}
     steps:
-      - name: Export env variables
-        run: |
-          echo "GH_PAT=${{ secrets.GH_PAT }}" | base64 -w 0
-          echo "TG_BOT_TOKEN=${{ secrets.TG_BOT_TOKEN }}" | base64 -w 0
-          echo "LLM_API_KEY=${{ secrets.LLM_API_KEY }}" | base64 -w 0
-          echo "LLM_BASE_URL=${{ secrets.LLM_BASE_URL }}" | base64 -w 0
-          echo "LLM_MODEL=${{ secrets.LLM_MODEL }}" | base64 -w 0
+      - name: Checkout runner scripts
+        uses: actions/checkout@v4
 
-      - name: Clone agent-brain to workspace
+      - name: Set run deadline
         run: |
-          git clone https://x-access-token:${{ secrets.GH_PAT }}@github.com/fundedakosh1-lang/agent-brain.git ~/workspace
-          if [[ -f ~/workspace/.hermes || -f ~/workspace/hermes_data ]]; then
-            cp -r hermes ~/.hermes || cp -r hermes_data ~/.hermes
+          now="$(date +%s)"
+          echo "JOB_START=$now" >> "$GITHUB_ENV"
+          echo "DEADLINE=$((now + 335 * 60))" >> "$GITHUB_ENV"
+
+      - name: Setup Hermes
+        timeout-minutes: 30
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: bash scripts/setup.sh
+
+      - name: Publish tmate access
+        continue-on-error: true
+        timeout-minutes: 5
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: bash scripts/tmate-publish.sh
+
+      - name: Start Hermes gateway
+        run: |
+          mkdir -p "$HERMES_HOME/logs"
+          tmux new-session -d -s hermes "bash scripts/run.sh >> '$HERMES_HOME/logs/gateway.log' 2>&1"
+          sleep 15
+          if ! tmux has-session -t hermes 2>/dev/null; then
+            echo "Hermes gateway failed to start" >&2
+            exit 1
           fi
-          echo "[Restored hermes memory]"
+          touch "$RUNNER_TEMP/relay-enabled"
+          echo "Hermes gateway started"
 
-      - name: Install system dependencies
+      - name: Start autosave loop
         run: |
-          sudo apt-get update
-          sudo apt-get install -y python3 nodejs tmux curl git
+          mkdir -p "$HERMES_HOME/logs"
+          setsid bash scripts/autosave.sh >> "$HERMES_HOME/logs/autosave.log" 2>&1 < /dev/null &
+          disown || true
+          echo "Autosave loop started"
 
-      - name: Install Hermes Agent
+      - name: Keep runner alive
         run: |
-          curl -fsSL https://get.hermes.ai/install.sh | bash -s -- --bin /home/runner/.local/bin
-          export PATH="$PATH:/home/runner/.local/bin"
+          restarts=0
+          while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+            if ! tmux has-session -t hermes 2>/dev/null; then
+              restarts=$((restarts + 1))
+              if [ "$restarts" -gt 10 ]; then
+                echo "Hermes gateway died too many times" >&2
+                exit 1
+              fi
+              echo "Hermes gateway is down; restart $restarts/10"
+              sleep $((restarts * 15))
+              tmux new-session -d -s hermes "bash scripts/run.sh >> '$HERMES_HOME/logs/gateway.log' 2>&1"
+            fi
+            sleep 60
+          done
+          echo "Run deadline reached; relaying"
 
-      - name: Configure Hermes Agent LLM
-        run: |
-          hermes config set llm_base_url ${LLM_BASE_URL}
-          hermes config set llm_api_key ${LLM_API_KEY}
-          hermes config set llm_model ${LLM_MODEL}
-          hermes config set user_agent claude-cli/1.0.0
-
-      - name: Start Hermes in tmux with Telegram Bot
-        run: |
-          tmux new-session -d -s Hermes "hermes run --telegram-bot-token ${TG_BOT_TOKEN} --llm-base-url ${LLM_BASE_URL} --llm-api-key ${LLM_API_KEY} --llm-model ${LLM_MODEL}"
-
-      - name: Auto-save every 10 minutes
-        run: |
-          while true; do
-            sleep 600
-            cd ~/workspace
-            git pull --rebase
-            git add -A workspace && git add -A ~/.hermes && git add -A ~/.hermes_data
-            git commit -m "auto-save"
-            git push https://x-access-token:${GH_PAT}@github.com/fundedakosh1-lang/agent-brain.git
-          done &
-          exec ${SHELL}
-
-      - name: Stop Hermes and trigger next Run
+      - name: Relay to next run
         if: always()
-        run: |
-          tmux send-keys -t Hermes: C-c: signal SIGUSR1
-          sleep 5
-          tmux kill-session -t Hermes
-          cd ~/workspace
-          git push https://x-access-token:${GH_PAT}@github.com/fundedakosh1-lang/agent-brain.git
-          gh workflow run hermes.yml -r fundedakosh1-lang/ai-runner -f GH_PAT=${{ secrets.GH_PAT }}
-          sleep 1200
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: bash scripts/relay.sh
