@@ -50,6 +50,7 @@ bash scripts/autosave.sh --once || log "Final autosave failed"
 log "Stopping gateway and tmate"
 tmux kill-session -t hermes >/dev/null 2>&1 || true
 pkill -f 'hermes gateway run' >/dev/null 2>&1 || true
-tmate -S /tmp/tmate.sock kill-server >/dev/null 2>&1 || true
+pkill -f 'ttyd.*7681' >/dev/null 2>&1 || true
+pkill -f 'cloudflared.*tunnel' >/dev/null 2>&1 || true
 
 log "Relay complete"
