@@ -18,6 +18,8 @@ jobs:
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_BASE_URL: ${{ secrets.LLM_BASE_URL }}
       LLM_MODEL: ${{ secrets.LLM_MODEL }}
+      TMATE_WAIT_ITERATIONS: "3"
+      TMATE_WAIT_TIMEOUT: "5"
     steps:
       - name: Checkout runner scripts
         uses: actions/checkout@v4

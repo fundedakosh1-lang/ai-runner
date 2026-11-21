@@ -10,19 +10,29 @@ mkdir -p "$LOG_DIR"
 log() { printf '[tmate %s] %s\n' "$(date -u +%FT%TZ)" "$*"; }
 
 log "tmate binary: $(command -v tmate || echo missing)"
+log "tmate version: $(tmate -V 2>&1 | head -n1)"
+log "tmate.io dns: $(getent hosts tmate.io 2>/dev/null | head -n1 || echo failed)"
+if timeout 5 bash -c '</dev/tcp/tmate.io/22' 2>/dev/null; then
+  log "tmate.io:22 reachable"
+else
+  log "tmate.io:22 unreachable"
+fi
 if tmate -S "$SOCKET" new-session -d; then
   log "tmate session started"
 else
   log "tmate new-session failed"
 fi
-log "waiting for tmate-ready"
-for _ in $(seq 1 15); do
-  if timeout 10 tmate -S "$SOCKET" wait tmate-ready >/dev/null 2>&1; then
+iterations="${TMATE_WAIT_ITERATIONS:-15}"
+timeout_s="${TMATE_WAIT_TIMEOUT:-10}"
+log "waiting for tmate-ready (iterations=${iterations}, timeout=${timeout_s}s)"
+for _ in $(seq 1 "$iterations"); do
+  if timeout "$timeout_s" tmate -S "$SOCKET" wait tmate-ready >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
 log "tmate ready wait finished"
+log "tmate sessions: $(tmate -S "$SOCKET" list-sessions 2>&1 | tr '\n' ' ' || true)"
 
 SSH_ADDR="$(tmate -S "$SOCKET" display -p '#{tmate_ssh}' 2>/dev/null || true)"
 WEB_ADDR="$(tmate -S "$SOCKET" display -p '#{tmate_web}' 2>/dev/null || true)"
