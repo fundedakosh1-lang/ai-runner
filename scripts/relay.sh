@@ -47,7 +47,7 @@ sleep 2
 log "Final autosave"
 bash scripts/autosave.sh --once || log "Final autosave failed"
 
-log "Stopping gateway and tmate"
+log "Stopping gateway and web access"
 tmux kill-session -t hermes >/dev/null 2>&1 || true
 pkill -f 'hermes gateway run' >/dev/null 2>&1 || true
 pkill -f 'ttyd.*7681' >/dev/null 2>&1 || true

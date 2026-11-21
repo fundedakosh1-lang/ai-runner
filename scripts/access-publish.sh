@@ -25,12 +25,17 @@ mv -f "$ACCESS_DIR/cloudflared-linux-amd64" "$CLOUDFLARED_BIN"
 chmod +x "$TTYD_BIN" "$CLOUDFLARED_BIN"
 
 log "starting web terminal on 127.0.0.1:${PORT}"
-setsid "$TTYD_BIN" -W -p "$PORT" -i 127.0.0.1 -c "${TTYD_USER}:${TTYD_PASS}" \
-  bash >"$LOG_DIR/ttyd.log" 2>&1 < /dev/null &
+env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+  PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  LANG=C.UTF-8 LC_ALL=C.UTF-8 TERM=xterm-256color SHELL=/bin/bash \
+  setsid "$TTYD_BIN" -W -p "$PORT" -i 127.0.0.1 -c "${TTYD_USER}:${TTYD_PASS}" \
+  bash -l >"$LOG_DIR/ttyd.log" 2>&1 < /dev/null &
 sleep 2
 
 log "starting cloudflare quick tunnel"
-setsid "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${PORT}" --no-autoupdate \
+env -i HOME="$HOME" USER="${USER:-runner}" LOGNAME="${LOGNAME:-runner}" \
+  PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+  setsid "$CLOUDFLARED_BIN" tunnel --url "http://127.0.0.1:${PORT}" --no-autoupdate \
   >"$LOG_DIR/cloudflared.log" 2>&1 < /dev/null &
 
 URL=""
