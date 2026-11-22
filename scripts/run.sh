@@ -16,4 +16,4 @@ if [ -z "${HERMES_BIN:-}" ] || [ ! -x "$HERMES_BIN" ]; then
   exit 1
 fi
 
-exec "$HERMES_BIN" gateway run --force --accept-hooks -v
+exec "$HERMES_BIN" gateway run --force --accept-hooks --yolo -v
