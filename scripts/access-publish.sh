@@ -130,28 +130,22 @@ log "web terminal is public at ${WEB_URL}"
 
 # ------------------------------------------------------------------ SSH via bore
 log "preparing sshd on 127.0.0.1:${SSH_PORT}"
-sudo mkdir -p /run/sshd
 sudo ssh-keygen -A >/dev/null 2>&1 || true
 
-sudo tee /etc/ssh/sshd_config.d/hermes-access.conf >/dev/null <<EOF
-Port ${SSH_PORT}
-ListenAddress 0.0.0.0
-PermitRootLogin yes
-PasswordAuthentication yes
-PubkeyAuthentication yes
-KbdInteractiveAuthentication no
-UsePAM yes
-EOF
-
-# A password is needed for keyless password auth from any client.
-# Use a dedicated, random password and publish it alongside the endpoint.
+# A password is needed for password auth from any client. Use a dedicated,
+# random password and publish it alongside the endpoint; never the PAT.
 SSH_PASS="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)"
 echo "${SSH_USER}:${SSH_PASS}" | sudo chpasswd
-sudo systemctl restart ssh >/dev/null 2>&1 || sudo service ssh restart >/dev/null 2>&1 || true
-sudo /usr/sbin/sshd -p "$SSH_PORT" -o PermitRootLogin=yes -o PasswordAuthentication=yes \
+
+# Run sshd as root (needed for password login as root), but bound to loopback:
+# bore is the only way in, so the port is never exposed directly.
+# -o is passed alongside the defaults so a global ListenAddress cannot override it.
+sudo mkdir -p /run/sshd
+sudo /usr/sbin/sshd -p "$SSH_PORT" -o ListenAddress=127.0.0.1 \
+  -o PermitRootLogin=yes -o PasswordAuthentication=yes \
   >/tmp/hermes-sshd.log 2>&1 || true
 sleep 2
-if ! python3 - "$SSH_PORT" <<'PY'
+python3 - "$SSH_PORT" <<'PY'
 import socket, sys
 port = int(sys.argv[1])
 try:
@@ -163,12 +157,13 @@ s.close()
 if not banner.startswith(b"SSH-"):
     sys.exit(1)
 PY
-then
+rc=$?
+if [ "$rc" -ne 0 ]; then
   echo "sshd is not serving SSH on port ${SSH_PORT}; see /tmp/hermes-sshd.log" >&2
   sudo tail -n 20 /tmp/hermes-sshd.log >&2 2>/dev/null || true
   exit 1
 fi
-log "sshd listening on ${SSH_PORT}"
+log "sshd listening on 127.0.0.1:${SSH_PORT}"
 
 log "starting bore tunnel to ${BORE_SERVER}"
 bore_args=(local "$SSH_PORT" --to "$BORE_SERVER")
