@@ -52,6 +52,8 @@ tmux kill-session -t hermes >/dev/null 2>&1 || true
 pkill -f 'hermes gateway run' >/dev/null 2>&1 || true
 pkill -f 'ttyd.*7681' >/dev/null 2>&1 || true
 pkill -f 'cloudflared.*tunnel' >/dev/null 2>&1 || true
+pkill -f 'access/bore' >/dev/null 2>&1 || true
+pkill -f 'hermes-access.conf' >/dev/null 2>&1 || true
 pkill -f 'sshd' >/dev/null 2>&1 || true
 
 log "Relay complete"
